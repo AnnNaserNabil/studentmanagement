@@ -1,0 +1,11 @@
+CREATE TABLE user (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  username VARCHAR(100),
+  email VARCHAR(100),
+  phone VARCHAR(20),
+  usertype VARCHAR(20),
+  password VARCHAR(255)
+);
+
+INSERT INTO user(username, email, phone, usertype, password)
+VALUES ('Test User', 'test@example.com', '01712345678', 'student', 'testpass');

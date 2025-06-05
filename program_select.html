@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Select Program and Payment Method</title>
+    <link rel="stylesheet" href="style1.css">
+</head>
+<body>
+    <div class="card">
+        <h2>Select Your Program & Payment Method</h2>
+        <form action="" method="GET" id="paymentForm">
+            <select name="program" required>
+                <option value="">--Select Program--</option>
+                <option value="Undergraduate">Undergraduate Program</option>
+                <option value="Graduate">Graduate Program</option>
+                <option value="PhD">PhD Program</option>
+            </select>
+
+            <select name="method" required>
+                <option value="">--Select Payment Method--</option>
+                <option value="bkash">Bkash</option>
+                <option value="nagad">Nagad</option>
+                <option value="card">Card</option>
+                <option value="rocket">Rocket</option>
+            </select>
+
+            <button type="submit">Proceed to Payment</button>
+        </form>
+    </div>
+
+    <script>
+        document.getElementById('paymentForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const program = this.program.value;
+            const method = this.method.value;
+
+            if (program && method) {
+                window.location.href = `${method}.php?program=${program}`;
+            }
+        });
+    </script>
+</body>
+</html>
