@@ -17,14 +17,12 @@ COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 # Set working directory
 WORKDIR /var/www/html
 
-# Create storage directory and set permissions first
+# Create storage directory structure first
 RUN mkdir -p /var/www/html/storage/framework/{sessions,views,cache} \
-    && chown -R www-data:www-data /var/www/html/storage \
-    && chmod -R 775 /var/www/html/storage
+    && mkdir -p /var/www/html/bootstrap/cache
 
 # Copy composer files first to leverage Docker cache
 COPY --chown=www-data:www-data composer.json composer.lock* ./
-
 
 # Install dependencies
 RUN composer install --no-dev --no-interaction --optimize-autoloader --ignore-platform-reqs --no-scripts
@@ -32,11 +30,11 @@ RUN composer install --no-dev --no-interaction --optimize-autoloader --ignore-pl
 # Copy the rest of the application
 COPY --chown=www-data:www-data . .
 
-# Ensure proper permissions
+# Set permissions
 RUN chown -R www-data:www-data /var/www/html \
     && find /var/www/html -type d -exec chmod 755 {} \; \
     && find /var/www/html -type f -exec chmod 644 {} \; \
-    && chmod -R 775 /var/www/html/storage \
+    && chmod -R 775 /var/www/html/storage /var/www/html/bootstrap/cache \
     && a2enmod rewrite
 
 # Configure Apache
