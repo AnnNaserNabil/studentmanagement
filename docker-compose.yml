@@ -5,46 +5,60 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    container_name: student-management-app
+    restart: unless-stopped
     ports:
-      - "8080:8080"
+      - "8080:80"
     volumes:
-      - .:/var/www/html
+      - ./:/var/www/html
+    environment:
+      # Local development defaults (overridden by .env file)
+      - APP_ENV=development
+      - APP_DEBUG=true
+      # Database configuration (can be overridden by .env)
+      - MYSQL_URL=${MYSQL_URL:-mysql://root:password@db:3306/school}
+      - DB_HOST=${DB_HOST:-db}
+      - DB_PORT=${DB_PORT:-3306}
+      - DB_DATABASE=${DB_DATABASE:-school}
+      - DB_USERNAME=${DB_USERNAME:-root}
+      - DB_PASSWORD=${DB_PASSWORD:-password}
+    env_file:
+      - .env
     depends_on:
       - db
-    environment:
-      - DB_HOST=db
-      - DB_PORT=3306
-      - DB_DATABASE=schoolproject
-      - DB_USERNAME=root
-      - DB_PASSWORD=rootpassword
-    restart: unless-stopped
     networks:
       - student-network
 
   db:
     image: mysql:8.0
-    command: --default-authentication-plugin=mysql_native_password
-    restart: always
+    container_name: student-management-db
+    restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: rootpassword
-      MYSQL_DATABASE: schoolproject
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-password}
+      MYSQL_DATABASE: ${DB_DATABASE:-school}
+      MYSQL_USER: ${DB_USERNAME:-user}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-password}
     volumes:
-      - mysql_data:/var/lib/mysql
+      - dbdata:/var/lib/mysql
     ports:
-      - "4306:3306"
+      - "${DB_EXTERNAL_PORT:-4306}:3306"
     networks:
       - student-network
+    command: --default-authentication-plugin=mysql_native_password
 
   phpmyadmin:
     image: phpmyadmin/phpmyadmin
-    ports:
-      - "8081:80"
+    container_name: student-management-pma
+    restart: unless-stopped
     environment:
-      - PMA_HOST=db
-      - PMA_USER=root
-      - PMA_PASSWORD=rootpassword
+      PMA_HOST: db
+      PMA_USER: ${DB_USERNAME:-root}
+      PMA_PASSWORD: ${DB_PASSWORD:-password}
+      UPLOAD_LIMIT: 128M
     depends_on:
       - db
+    ports:
+      - "${PMA_PORT:-8081}:80"
     networks:
       - student-network
 
@@ -53,4 +67,5 @@ networks:
     driver: bridge
 
 volumes:
-  mysql_data:
+  dbdata:
+    driver: local
