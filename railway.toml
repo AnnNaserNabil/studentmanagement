@@ -14,10 +14,16 @@ files = [
   ".git",
   ".github",
   ".vscode",
+  ".idea",
   "node_modules",
+  "vendor",
   "*.md",
-  "*.log"
+  "*.log",
+  "*.sqlite",
+  ".env*",
+  "docker-compose*"
 ]
 
 [build.environment]
-NODE_ENV = "production"
+APP_ENV = "production"
+APP_DEBUG = "false"

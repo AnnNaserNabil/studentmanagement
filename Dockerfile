@@ -1,43 +1,39 @@
 # Use official PHP 8.3 with Apache
 FROM php:8.3-apache
 
-# Install system dependencies
+# Install system dependencies and PHP extensions
 RUN apt-get update && apt-get install -y \
-    git \
-    curl \
     libpng-dev \
     libonig-dev \
     libxml2-dev \
+    libzip-dev \
     zip \
     unzip \
-    libzip-dev \
-    && docker-php-ext-install pdo_mysql mbstring exif pcntl bcmath gd zip
+    && docker-php-ext-install pdo_mysql mbstring gd zip
 
 # Install Composer
-RUN curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
+COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
 # Set working directory
 WORKDIR /var/www/html
 
-# Copy composer files first (to leverage Docker cache)
-COPY composer.json composer.lock* ./
-
-
-# Install dependencies
-RUN composer install --no-scripts --no-autoloader --no-interaction --no-progress --ignore-platform-reqs
-
 # Copy application files
 COPY . .
 
-
-# Generate autoload files
-RUN composer dump-autoload --optimize --no-dev
+# Install dependencies
+RUN composer install --no-dev --no-interaction --optimize-autoloader --ignore-platform-reqs
 
 # Set permissions
 RUN chown -R www-data:www-data /var/www/html \
+    && chmod -R 755 /var/www/html/storage \
     && a2enmod rewrite
 
-# Set environment to production
+# Configure Apache
+ENV APACHE_DOCUMENT_ROOT /var/www/html/public
+RUN sed -ri -e 's!/var/www/html!${APACHE_DOCUMENT_ROOT}!g' /etc/apache2/sites-available/*.conf
+RUN sed -ri -e 's!/var/www/!${APACHE_DOCUMENT_ROOT}!g' /etc/apache2/apache2.conf /etc/apache2/conf-available/*.conf
+
+# Set environment
 ENV APP_ENV=production
 ENV APP_DEBUG=false
 

@@ -1,12 +1,17 @@
 .git
 .gitignore
+.github
 .vscode
 .idea
 node_modules
 vendor
 *.log
-.env
 *.sqlite
+.env
+.env.*
+*.pem
+*.key
+*.crt
 .DS_Store
 *.swp
 *.swo
@@ -14,3 +19,8 @@ vendor
 *.bak
 *.backup
 *~
+Dockerfile
+.dockerignore
+docker-compose*
+README.md
+LICENSE
