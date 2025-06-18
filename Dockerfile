@@ -4,6 +4,7 @@ FROM php:8.3-fpm
 # Install system dependencies with build essentials
 RUN apt-get update && apt-get install -y \
     nginx \
+    procps \
     libpng-dev \
     libonig-dev \
     libxml2-dev \
@@ -19,11 +20,9 @@ RUN apt-get update && apt-get install -y \
     libpq-dev \
     libxpm-dev \
     libvpx-dev \
+    default-mysql-client \
     && docker-php-ext-configure gd --with-freetype --with-jpeg --with-webp \
     && docker-php-ext-install -j$(nproc) pdo_mysql mbstring gd zip opcache intl
-
-# Install MySQL client for database initialization
-RUN apt-get install -y default-mysql-client
 
 # Install Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
@@ -163,33 +162,30 @@ listen.group = www-data\n\
 listen.mode = 0660\n\
 clear_env = no\n' > /usr/local/etc/php-fpm.d/zz-docker.conf
 
-# Create startup script
+# Create a more reliable startup script
 COPY <<EOF /usr/local/bin/start.sh
 #!/bin/bash
 set -e
 
 # Create necessary directories
-mkdir -p /run/php
+mkdir -p /run/php /var/log/php-fpm
 
 # Start PHP-FPM in background
+echo "Starting PHP-FPM..."
 php-fpm -D
 
-# Wait for PHP-FPM to start
-sleep 5
-
-# Check if PHP-FPM is running
-if ! pgrep "php-fpm" > /dev/null; then
+# Simple check if PHP-FPM is running
+if ! (ps -ef | grep -v grep | grep php-fpm); then
     echo "PHP-FPM failed to start"
     exit 1
 fi
 
+# Wait a bit to ensure PHP-FPM is ready
+sleep 3
+
 # Start Nginx in foreground
 echo "Starting Nginx..."
-nginx -g 'daemon off;'
-
-# If Nginx fails, show the error
-echo "Nginx failed to start"
-exit 1
+exec nginx -g 'daemon off;'
 EOF
 
 # Make startup script executable
