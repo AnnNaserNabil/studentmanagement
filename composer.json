@@ -9,14 +9,15 @@
     "ext-mysqli": "*",
     "ext-gd": "*",
     "ext-mbstring": "*",
-    "ext-curl": "*"
-  },
-  "require-dev": {
-    "heroku/heroku-buildpack-php": "*"
+    "ext-curl": "*",
+    "ext-zip": "*"
   },
   "config": {
     "platform": {
       "php": "8.3"
-    }
+    },
+    "optimize-autoloader": true,
+    "preferred-install": "dist",
+    "sort-packages": true
   }
 }

@@ -1,26 +1,71 @@
+# Git
 .git
 .gitignore
 .github
+
+# Development
 .vscode
 .idea
-node_modules
-vendor
-*.log
-*.sqlite
+*.sublime-*
+*.sublime-project
+*.sublime-workspace
+
+# Dependencies
+node_modules/
+vendor/
+composer.lock
+package-lock.json
+yarn.lock
+
+# Environment files
 .env
 .env.*
-*.pem
-*.key
-*.crt
+!.env.example
+
+# Logs
+*.log
+storage/logs/*
+
+# Cache
+storage/framework/cache/*
+storage/framework/views/*
+storage/framework/sessions/*
+
+# Tests
+.phpunit.result.cache
+.phpunit.cache/
+
+# Local development
 .DS_Store
-*.swp
-*.swo
-*.swn
-*.bak
-*.backup
-*~
+Thumbs.db
+
+# Build files
 Dockerfile
 .dockerignore
 docker-compose*
+
+# Documentation
 README.md
 LICENSE
+*.pdf
+
+# Database
+*.sqlite
+*.sql
+*.db
+
+# IDE specific files
+.idea
+.vscode
+*.sublime-*
+*.sublime-project
+*.sublime-workspace
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
