@@ -18,23 +18,22 @@ COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 WORKDIR /var/www/html
 
 # Copy application files
-COPY --chown=www-data:www-data . .
+COPY . .
 
-# Ensure public directory exists
-RUN mkdir -p public
+# Create necessary directories
+RUN mkdir -p storage/framework/{sessions,views,cache} \
+    && mkdir -p bootstrap/cache \
+    && mkdir -p public
 
-# Create a simple index.php if it doesn't exist
-RUN if [ ! -f /var/www/html/public/index.php ]; then \
-        echo "<?php phpinfo();" > /var/www/html/public/index.php; \
+# Install dependencies if composer.json exists
+RUN if [ -f "composer.json" ]; then \
+        composer install --no-dev --no-interaction --optimize-autoloader --ignore-platform-reqs --no-scripts; \
     fi
 
 # Set permissions
 RUN chown -R www-data:www-data /var/www/html \
-    && find /var/www/html -type d -exec chmod 755 {} \; \
-    && find /var/www/html -type f -exec chmod 644 {} \; \
-    && chmod -R 775 /var/www/html/storage \
-    && chmod -R 775 /var/www/html/bootstrap/cache \
-    && chmod -R 755 /var/www/html/public
+    && chmod -R 755 storage bootstrap/cache \
+    && chmod -R 755 public
 
 # Configure Apache
 RUN a2enmod rewrite \
@@ -43,17 +42,6 @@ RUN a2enmod rewrite \
     && echo "    AllowOverride All" >> /etc/apache2/apache2.conf \
     && echo "    Require all granted" >> /etc/apache2/apache2.conf \
     && echo "</Directory>" >> /etc/apache2/apache2.conf
-
-# Configure PHP
-RUN { \
-    echo 'memory_limit = 512M'; \
-    echo 'upload_max_filesize = 100M'; \
-    echo 'post_max_size = 100M'; \
-    echo 'max_execution_time = 300'; \
-    echo 'display_errors = On'; \
-    echo 'log_errors = On'; \
-    echo 'error_log = /var/log/php_errors.log'; \
-} > /usr/local/etc/php/conf.d/custom.ini
 
 # Set document root
 ENV APACHE_DOCUMENT_ROOT=/var/www/html/public
