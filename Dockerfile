@@ -8,6 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     git \
     gnupg \
+    pkg-config \
     unzip \
     zip \
     && rm -rf /var/lib/apt/lists/*
@@ -24,6 +25,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libicu-dev \
     libpq-dev \
     libssl-dev \
+    libonig-dev \
     default-mysql-client \
     && rm -rf /var/lib/apt/lists/*
 
