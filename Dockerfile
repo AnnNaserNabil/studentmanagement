@@ -133,102 +133,48 @@ RUN echo '#!/bin/sh\n\
 set -e\n\
 # Get the port from the environment variable or use 8080 as default\n\
 PORT="${PORT:-8080}"\n\
-# Create the main nginx.conf with global settings\n\
-cat > /etc/nginx/nginx.conf <<NGINX_MAIN\n\
-user  nginx;\n\
-worker_processes  auto;\n\
-pid        /var/run/nginx.pid;\n\
+# Create the main nginx.conf\n\
+echo "user nginx;\n\
+worker_processes auto;\n\
+error_log /var/log/nginx/error.log warn;\n\
+pid /var/run/nginx.pid;\n\
 events {\n\
-    worker_connections  1024;\n\
+    worker_connections 1024;\n\
 }\n\
 http {\n\
-    include       /etc/nginx/mime.types;\n\
-    default_type  application/octet-stream;\n\
-    sendfile        on;\n\
-    tcp_nopush     on;\n\
-    tcp_nodelay    on;\n\
-    keepalive_timeout  65;\n\
+    include /etc/nginx/mime.types;\n\
+    default_type application/octet-stream;\n\
+    log_format main "$remote_addr - $remote_user [$time_local] \"$request\" "\n                      "$status $body_bytes_sent \"$http_referer\" "\n                      "\"$http_user_agent\" \"$http_x_forwarded_for\"";\n\
+    access_log /var/log/nginx/access.log main;\n\
+    sendfile on;\n\
+    tcp_nopush on;\n\
+    tcp_nodelay on;\n\
+    keepalive_timeout 65;\n\
     types_hash_max_size 2048;\n\
     server_tokens off;\n\
+    # Gzip Settings\n    gzip on;\n    gzip_disable "msie6";\n    gzip_vary on;\n    gzip_proxied any;\n    gzip_comp_level 6;\n    gzip_buffers 16 8k;\n    gzip_http_version 1.1;\n    gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript;\n\
     include /etc/nginx/conf.d/*.conf;\n\
     include /etc/nginx/sites-enabled/*;\n\
-    # Set the default error log level\n    error_log /var/log/nginx/error.log warn;\n\
-    # Gzip Settings\n    gzip on;\n    gzip_disable "msie6";\n    gzip_vary on;\n    gzip_proxied any;\n    gzip_comp_level 6;\n    gzip_buffers 16 8k;\n    gzip_http_version 1.1;\n    gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript;\n}\n\
-NGINX_MAIN\n\
+}" > /etc/nginx/nginx.conf\n\
 # Create the server configuration\n\
-cat > /etc/nginx/conf.d/default.conf <<NGINX_CONF\n\
-server {\n\
-    listen ${PORT} default_server;\n\
-    listen [::]:${PORT} default_server;\n\
+echo "server {\n\
+    listen ${PORT:-8080} default_server;\n\
+    listen [::]:${PORT:-8080} default_server;\n\
     server_name _;\n\
     root /var/www/html/public;\n\
     index index.php index.html index.htm;\n\
     charset utf-8;\n\
-    # Logging\n\
-    access_log /var/log/nginx/access.log;\n\
-    error_log /var/log/nginx/error.log warn;\n\
-    # Security headers\n\
-    add_header X-Frame-Options "SAMEORIGIN";\n\
-    add_header X-Content-Type-Options "nosniff";\n\
-    add_header X-XSS-Protection "1; mode=block";\n\
-    # File upload size\n\
-    client_max_body_size 100M;\n\
-    # Root location\n\
-    location / {\n\
-        try_files \$uri \$uri/ /index.php?\$query_string;\n\
-    }\n\
-    # PHP-FPM Configuration\n\
-    location ~ \\.php$ {\n\
-        try_files \$uri =404;\n\
-        fastcgi_split_path_info ^(.+\\.php)(/.+)$;\n\
-        fastcgi_pass 127.0.0.1:9000;\n\
-        fastcgi_index index.php;\n\
-        include fastcgi_params;\n\
-        fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;\n\
-        fastcgi_param PATH_INFO \$fastcgi_path_info;\n\
-        # Timeouts\n\
-        fastcgi_read_timeout 300s;\n\
-        fastcgi_send_timeout 300s;\n\
-        fastcgi_connect_timeout 300s;\n\
-        # Buffers\n\
-        fastcgi_buffer_size 128k;\n\
-        fastcgi_buffers 4 256k;\n\
-        fastcgi_busy_buffers_size 256k;\n\
-    }\n\
-    # Deny access to hidden files\n\
-    location ~ /\\. {\n\
-        deny all;\n\
-        access_log off;\n\
-        log_not_found off;\n\
-    }\n\
-    # Deny access to sensitive files\n\
-    location ~* \\.(env|log|sql|sqlite|gitignore|gitattributes)$ {\n\
-        deny all;\n\
-        access_log off;\n\
-        log_not_found off;\n\
-    }\n\
-    # Cache static files\n\
-    location ~* \\.(jpg|jpeg|gif|png|css|js|ico|webp|svg|woff|woff2|ttf|eot)$ {\n\
-        expires 30d;\n\
-        add_header Cache-Control "public, no-transform";\n\
-        try_files \$uri =404;\n\
-        access_log off;\n\
-        log_not_found off;\n\
-    }\n\
-    # Deny access to storage and bootstrap/cache directories\n\
-    location ~* /(storage|bootstrap/cache) {\n\
-        deny all;\n\
-        access_log off;\n\
-        log_not_found off;\n\
-    }\n\
-    # Deny access to .git directory\n\
-    location ~ /\.git {\n\
-        deny all;\n\
-        access_log off;\n\
-        log_not_found off;\n\
-    }\n\
-}\n\
-NGINX_CONF\n\
+    # Logging\n    access_log /var/log/nginx/access.log;\n    error_log /var/log/nginx/error.log warn;\n\
+    # Security headers\n    add_header X-Frame-Options "SAMEORIGIN";\n    add_header X-Content-Type-Options "nosniff";\n    add_header X-XSS-Protection "1; mode=block";\n\
+    # File upload size\n    client_max_body_size 100M;\n\
+    # Root location\n    location / {\n        try_files \$uri \$uri/ /index.php?\$query_string;\n    }\n\
+    # PHP-FPM Configuration\n    location ~ \\.php$ {\n        try_files \$uri =404;\n        fastcgi_split_path_info ^(.+\\.php)(/.+)$;\n        fastcgi_pass 127.0.0.1:9000;\n        fastcgi_index index.php;\n        include fastcgi_params;\n        fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;\n        fastcgi_param PATH_INFO \$fastcgi_path_info;\n        # Timeouts\n        fastcgi_read_timeout 300s;\n        fastcgi_send_timeout 300s;\n        fastcgi_connect_timeout 300s;\n        # Buffers\n        fastcgi_buffer_size 128k;\n        fastcgi_buffers 4 256k;\n        fastcgi_busy_buffers_size 256k;\n    }\n\
+    # Deny access to hidden files\n    location ~ /\\. {\n        deny all;\n        access_log off;\n        log_not_found off;\n    }\n\
+    # Deny access to sensitive files\n    location ~* \\.(env|log|sql|sqlite|gitignore|gitattributes)$ {\n        deny all;\n        access_log off;\n        log_not_found off;\n    }\n\
+    # Cache static files\n    location ~* \\.(jpg|jpeg|gif|png|css|js|ico|webp|svg|woff|woff2|ttf|eot)$ {\n        expires 30d;\n        add_header Cache-Control "public, no-transform";\n        try_files \$uri =404;\n        access_log off;\n        log_not_found off;\n    }\n\
+    # Deny access to storage and bootstrap/cache directories\n    location ~* /(storage|bootstrap/cache) {\n        deny all;\n        access_log off;\n        log_not_found off;\n    }\n\
+    # Deny access to .git directory\n    location ~ /\.git {\n        deny all;\n        access_log off;\n        log_not_found off;\n    }\n\
+}" > /etc/nginx/conf.d/default.conf\n\
 # Test the Nginx configuration\n\
 if nginx -t; then\n\
     echo "Nginx configuration test is successful"\n\
