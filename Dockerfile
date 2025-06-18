@@ -155,7 +155,7 @@ EOF
 RUN chmod +x /usr/local/bin/start.sh
 
 # Create necessary directories and set permissions
-RUN mkdir -p /var/log/nginx /var/lib/nginx \
+RUN mkdir -p /var/log/nginx /var/lib/nginx /var/tmp/nginx \
     && chown -R www-data:www-data /var/log/nginx /var/lib/nginx /var/tmp/nginx \
     && chmod -R 755 /var/log/nginx /var/lib/nginx /var/tmp/nginx
 
