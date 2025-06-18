@@ -1,7 +1,7 @@
 # Use PHP 8.3 FPM as base
 FROM php:8.3-fpm
 
-# Install system dependencies
+# Install system dependencies with build essentials
 RUN apt-get update && apt-get install -y \
     nginx \
     libpng-dev \
@@ -10,7 +10,17 @@ RUN apt-get update && apt-get install -y \
     libzip-dev \
     zip \
     unzip \
-    && docker-php-ext-install pdo_mysql mbstring gd zip opcache
+    libpng-tools \
+    libjpeg-dev \
+    libfreetype6-dev \
+    libwebp-dev \
+    libssl-dev \
+    libicu-dev \
+    libpq-dev \
+    libxpm-dev \
+    libvpx-dev \
+    && docker-php-ext-configure gd --with-freetype --with-jpeg --with-webp \
+    && docker-php-ext-install -j$(nproc) pdo_mysql mbstring gd zip opcache intl
 
 # Install Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
@@ -42,40 +52,85 @@ RUN echo 'pm = dynamic' >> /usr/local/etc/php-fpm.d/www.conf \
     && echo 'pm.max_spare_servers = 3' >> /usr/local/etc/php-fpm.d/www.conf
 
 # Configure Nginx
-COPY <<EOF /etc/nginx/sites-available/default
+RUN rm /etc/nginx/sites-enabled/default
+COPY <<EOF /etc/nginx/conf.d/default.conf
 server {
     listen 8080 default_server;
     listen [::]:8080 default_server;
+    server_name _;
     root /var/www/html/public;
     index index.php index.html index.htm;
+
+    access_log /var/log/nginx/access.log;
+    error_log /var/log/nginx/error.log;
 
     location / {
         try_files \$uri \$uri/ /index.php?\$query_string;
     }
 
     location ~ \.php$ {
-        include snippets/fastcgi-php.conf;
+        try_files \$uri =404;
+        fastcgi_split_path_info ^(.+\.php)(/.+)$;
         fastcgi_pass 127.0.0.1:9000;
-        fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
+        fastcgi_index index.php;
         include fastcgi_params;
+        fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
+        fastcgi_param PATH_INFO \$fastcgi_path_info;
+        fastcgi_param SCRIPT_NAME \$fastcgi_script_name;
+        fastcgi_param PATH_TRANSLATED \$document_root\$fastcgi_path_info;
     }
 
     location ~ /\.ht {
         deny all;
     }
+
+    # Deny access to hidden files
+    location ~ /\\. {
+        deny all;
+        access_log off;
+        log_not_found off;
+    }
+
+    # Disable access to .git directories
+    location ~ /\.git {
+        deny all;
+        access_log off;
+        log_not_found off;
+    }
 }
 EOF
 
-# Copy startup script
+# Create a custom PHP-FPM config to listen on a Unix socket
+RUN echo '[global]\n\
+error_log = /proc/self/fd/2\n\
+[www]\n\
+user = www-data\n\
+group = www-data\n\
+listen = /var/run/php-fpm.sock\n\
+listen.owner = www-data\n\
+listen.group = www-data\n\
+listen.mode = 0660\n\
+clear_env = no\n' > /usr/local/etc/php-fpm.d/zz-docker.conf
+
+# Create startup script
 COPY <<EOF /usr/local/bin/start.sh
 #!/bin/bash
-service nginx start
+set -e
+
+# Start PHP-FPM in background
 php-fpm -D
-while true; do sleep 1; done
+
+# Start Nginx in foreground
+nginx -g 'daemon off;'
 EOF
 
 # Make startup script executable
 RUN chmod +x /usr/local/bin/start.sh
+
+# Create necessary directories and set permissions
+RUN mkdir -p /var/log/nginx /var/lib/nginx \
+    && chown -R www-data:www-data /var/log/nginx /var/lib/nginx /var/tmp/nginx \
+    && chmod -R 755 /var/log/nginx /var/lib/nginx /var/tmp/nginx
 
 # Expose port 8080 (Nginx)
 EXPOSE 8080
