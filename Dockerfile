@@ -15,27 +15,39 @@ RUN apt-get update && apt-get install -y \
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
 # Set working directory
-WORKDIR /var/www/html
+WORKDIR /var/www
 
-# Create storage directory structure first
-RUN mkdir -p /var/www/html/storage/framework/{sessions,views,cache} \
+# Create document root and storage directories
+RUN mkdir -p /var/www/html/public \
+    && mkdir -p /var/www/html/storage/framework/{sessions,views,cache} \
     && mkdir -p /var/www/html/bootstrap/cache
 
 # Copy composer files first to leverage Docker cache
-COPY --chown=www-data:www-data composer.json composer.lock* ./
+COPY --chown=www-data:www-data composer.json composer.lock* /var/www/html/
+
+# Set working directory to html
+WORKDIR /var/www/html
 
 # Install dependencies
 RUN composer install --no-dev --no-interaction --optimize-autoloader --ignore-platform-reqs --no-scripts
 
 # Copy the rest of the application
-COPY --chown=www-data:www-data . .
+COPY --chown=www-data:www-data . /var/www/html/
+
+# Create a simple index.php if it doesn't exist
+RUN if [ ! -f /var/www/html/public/index.php ]; then \
+        echo "<?php phpinfo();" > /var/www/html/public/index.php; \
+    fi
 
 # Set permissions
-RUN chown -R www-data:www-data /var/www/html \
-    && find /var/www/html -type d -exec chmod 755 {} \; \
-    && find /var/www/html -type f -exec chmod 644 {} \; \
+RUN chown -R www-data:www-data /var/www \
+    && find /var/www -type d -exec chmod 755 {} \; \
+    && find /var/www -type f -exec chmod 644 {} \; \
     && chmod -R 775 /var/www/html/storage /var/www/html/bootstrap/cache \
-    && a2enmod rewrite
+    && chmod -R 755 /var/www/html/public
+
+# Enable Apache modules
+RUN a2enmod rewrite headers
 
 # Configure Apache
 ENV APACHE_DOCUMENT_ROOT /var/www/html/public
@@ -51,7 +63,8 @@ RUN mkdir -p ${APACHE_RUN_DIR} ${APACHE_LOCK_DIR} ${APACHE_LOG_DIR} \
     && chown -R www-data:www-data /var/run/apache2 /var/log/apache2
 
 # Configure Apache virtual host
-RUN echo "<VirtualHost *:80>\n\
+RUN echo "ServerName localhost\n\
+<VirtualHost *:80>\n\
     ServerAdmin webmaster@localhost\n\
     DocumentRoot ${APACHE_DOCUMENT_ROOT}\n\
     <Directory ${APACHE_DOCUMENT_ROOT}>\n\
@@ -65,10 +78,13 @@ RUN echo "<VirtualHost *:80>\n\
     </Directory>\n\
     ErrorLog ${APACHE_LOG_DIR}/error.log\n\
     CustomLog ${APACHE_LOG_DIR}/access.log combined\n\
+    # Additional settings\n\
+    <Directory /var/www/html>\n\
+        Options -Indexes +FollowSymLinks\n\
+        AllowOverride All\n\
+        Require all granted\n\
+    </Directory>\n\
 </VirtualHost>" > /etc/apache2/sites-available/000-default.conf
-
-# Enable necessary Apache modules
-RUN a2enmod rewrite headers env alias
 
 # Configure PHP
 RUN { \
@@ -76,7 +92,16 @@ RUN { \
     echo 'upload_max_filesize = 100M'; \
     echo 'post_max_size = 100M'; \
     echo 'max_execution_time = 300'; \
-} > /usr/local/etc/php/conf.d/uploads.ini
+    echo 'display_errors = Off'; \
+    echo 'log_errors = On'; \
+    echo 'error_log = /var/log/php_errors.log'; \
+} > /usr/local/etc/php/conf.d/custom.ini
+
+# Enable necessary Apache modules
+RUN a2enmod rewrite headers env alias
+
+# Create a test file if public directory is empty
+RUN echo "<?php phpinfo();" > /var/www/html/public/index.php
 
 # Set environment
 ENV APP_ENV=production
