@@ -81,6 +81,9 @@ RUN echo 'pm = dynamic' >> /usr/local/etc/php-fpm.d/www.conf \
 RUN rm -f /etc/nginx/sites-enabled/*
 RUN mkdir -p /run/nginx
 
+# Create a directory for entrypoint scripts
+RUN mkdir -p /docker-entrypoint.d
+
 # Create a script to generate the Nginx config with the correct port
 RUN echo '#!/bin/sh\n\
 set -e\n\
@@ -151,7 +154,6 @@ echo "Nginx configured to listen on port ${PORT}"' > /docker-entrypoint.d/10-lis
 
 # Make the script executable
 RUN chmod +x /docker-entrypoint.d/10-listen-on-ipv6-by-default.sh
-EOF
 
 # Create a custom PHP-FPM config to listen on a Unix socket
 RUN echo '[global]\n\
@@ -166,41 +168,33 @@ listen.mode = 0660\n\
 clear_env = no\n' > /usr/local/etc/php-fpm.d/zz-docker.conf
 
 # Create a more reliable startup script
-COPY <<EOF /usr/local/bin/start.sh
-#!/bin/bash
-set -e
-
-# Create necessary directories
-mkdir -p /run/php /var/log/php-fpm /var/run/nginx
-
-# Generate Nginx config with the correct port
-if [ -d /docker-entrypoint.d ]; then
-    for f in /docker-entrypoint.d/*.sh; do
-        if [ -x "$f" ]; then
-            echo "Running $f"
-            "$f"
-        fi
-    done
-fi
-
-# Start PHP-FPM in background
-echo "Starting PHP-FPM..."
-php-fpm -D
-
-# Simple check if PHP-FPM is running
-if ! (ps -ef | grep -v grep | grep php-fpm); then
-    echo "PHP-FPM failed to start"
-    exit 1
-fi
-
-# Wait a bit to ensure PHP-FPM is ready
-sleep 3
-
-# Start Nginx in foreground
-echo "Starting Nginx..."
-nginx -t
-exec nginx -g 'daemon off; error_log /dev/stderr info;'
-EOF
+RUN echo '#!/bin/bash\n\
+set -e\n\
+# Create necessary directories\n\
+mkdir -p /run/php /var/log/php-fpm /var/run/nginx\n\
+# Generate Nginx config with the correct port\n\
+if [ -d /docker-entrypoint.d ]; then\n\
+    for f in /docker-entrypoint.d/*.sh; do\n\
+        if [ -x "$f" ]; then\n\
+            echo "Running $f"\n\
+            "$f"\n\
+        fi\n\
+    done\n\
+fi\n\
+# Start PHP-FPM in background\n\
+echo "Starting PHP-FPM..."\n\
+php-fpm -D\n\
+# Simple check if PHP-FPM is running\n\
+if ! (ps -ef | grep -v grep | grep php-fpm); then\n\
+    echo "PHP-FPM failed to start"\n\
+    exit 1\n\
+fi\n\
+# Wait a bit to ensure PHP-FPM is ready\n\
+sleep 3\n\
+# Start Nginx in foreground\n\
+echo "Starting Nginx..."\n\
+nginx -t\n\
+exec nginx -g "daemon off; error_log /dev/stderr info;"' > /usr/local/bin/start.sh
 
 # Make startup script executable
 RUN chmod +x /usr/local/bin/start.sh
@@ -210,8 +204,9 @@ RUN mkdir -p /var/log/nginx /var/lib/nginx /var/tmp/nginx \
     && chown -R www-data:www-data /var/log/nginx /var/lib/nginx /var/tmp/nginx \
     && chmod -R 755 /var/log/nginx /var/lib/nginx /var/tmp/nginx
 
-# Expose port 8080 (Nginx)
-EXPOSE 8080
+# Expose the port specified by the PORT environment variable (default: 8080)
+ARG PORT=8080
+EXPOSE ${PORT}
 
 # Start services
 CMD ["/usr/local/bin/start.sh"]
