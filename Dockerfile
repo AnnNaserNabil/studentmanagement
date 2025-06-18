@@ -81,73 +81,76 @@ RUN echo 'pm = dynamic' >> /usr/local/etc/php-fpm.d/www.conf \
 RUN rm -f /etc/nginx/sites-enabled/*
 RUN mkdir -p /run/nginx
 
-COPY <<EOF /etc/nginx/conf.d/default.conf
-server {
-    listen \$PORT default_server;
-    listen [::]:\$PORT default_server;
-    server_name _;
-    root /var/www/html/public;
-    index index.php index.html index.htm;
+# Create a script to generate the Nginx config with the correct port
+RUN echo '#!/bin/sh\n\
+set -e\n\
+# Get the port from the environment variable or use 8080 as default\n\
+PORT="${PORT:-8080}"\n\
+# Create the Nginx config with the correct port\n\
+cat > /etc/nginx/conf.d/default.conf <<NGINX_CONF\n\
+server {\n\
+    listen ${PORT} default_server;\n\
+    listen [::]:${PORT} default_server;\n\
+    server_name _;\n\
+    root /var/www/html/public;\n\
+    index index.php index.html index.htm;\n\
+    access_log /var/log/nginx/access.log;\n\
+    error_log /var/log/nginx/error.log;\n\
+    # Increase timeouts\n\
+    client_max_body_size 100M;\n\
+    fastcgi_read_timeout 300;\n\
+    proxy_connect_timeout 600s;\n\
+    proxy_send_timeout 600s;\n\
+    proxy_read_timeout 600s;\n\
+    fastcgi_send_timeout 600s;\n\
+    fastcgi_read_timeout 600s;\n\
+    location / {\n\
+        try_files \$uri \$uri/ /index.php?\$query_string;\n\
+    }\n\
+    # PHP-FPM Configuration\n\
+    location ~ \\.php$ {\n\
+        try_files \$uri =404;\n\
+        fastcgi_split_path_info ^(.+\\.php)(/.+)$;\n\
+        fastcgi_pass 127.0.0.1:9000;\n\
+        fastcgi_index index.php;\n\
+        include fastcgi_params;\n\
+        fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;\n\
+        fastcgi_param PATH_INFO \$fastcgi_path_info;\n\
+        fastcgi_param PATH_TRANSLATED \$document_root\$fastcgi_path_info;\n\
+        fastcgi_param QUERY_STRING \$query_string;\n\
+        fastcgi_intercept_errors on;\n\
+        fastcgi_buffer_size 128k;\n\
+        fastcgi_buffers 4 256k;\n\
+        fastcgi_busy_buffers_size 256k;\n\
+    }\n\
+    # Deny access to hidden files\n\
+    location ~ /\\. {\n\
+        deny all;\n\
+        access_log off;\n\
+        log_not_found off;\n\
+    }\n\
+    # Disable access to .git directories\n\
+    location ~ /\\.git {\n\
+        deny all;\n\
+        access_log off;\n\
+        log_not_found off;\n\
+    }\n\
+    # Deny access to sensitive files\n\
+    location ~* \\.(env|log|sql|sqlite|gitignore|gitattributes)$ {\n\
+        deny all;\n\
+    }\n\
+    # Cache static files\n\
+    location ~* \\.(jpg|jpeg|gif|png|css|js|ico|webp|svg|woff|woff2|ttf|eot)$ {\n\
+        expires 30d;\n\
+        add_header Cache-Control "public, no-transform";\n\
+        try_files \$uri =404;\n\
+    }\n\
+}\n\
+NGINX_CONF\n\
+echo "Nginx configured to listen on port ${PORT}"' > /docker-entrypoint.d/10-listen-on-ipv6-by-default.sh
 
-    access_log /var/log/nginx/access.log;
-    error_log /var/log/nginx/error.log;
-
-    # Increase timeouts
-    client_max_body_size 100M;
-    fastcgi_read_timeout 300;
-    proxy_connect_timeout 600s;
-    proxy_send_timeout 600s;
-    proxy_read_timeout 600s;
-    fastcgi_send_timeout 600s;
-    fastcgi_read_timeout 600s;
-
-    location / {
-        try_files \$uri \$uri/ /index.php?\$query_string;
-    }
-
-    # PHP-FPM Configuration
-    location ~ \.php$ {
-        try_files \$uri =404;
-        fastcgi_split_path_info ^(.+\.php)(/.+)$;
-        fastcgi_pass 127.0.0.1:9000;
-        fastcgi_index index.php;
-        include fastcgi_params;
-        fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
-        fastcgi_param PATH_INFO \$fastcgi_path_info;
-        fastcgi_param PATH_TRANSLATED \$document_root\$fastcgi_path_info;
-        fastcgi_param QUERY_STRING \$query_string;
-        fastcgi_intercept_errors on;
-        fastcgi_buffer_size 128k;
-        fastcgi_buffers 4 256k;
-        fastcgi_busy_buffers_size 256k;
-    }
-
-    # Deny access to hidden files
-    location ~ /\. {
-        deny all;
-        access_log off;
-        log_not_found off;
-    }
-
-    # Disable access to .git directories
-    location ~ /\.git {
-        deny all;
-        access_log off;
-        log_not_found off;
-    }
-
-    # Deny access to sensitive files
-    location ~* \.(env|log|sql|sqlite|gitignore|gitattributes)$ {
-        deny all;
-    }
-
-    # Cache static files
-    location ~* \.(jpg|jpeg|gif|png|css|js|ico|webp|svg|woff|woff2|ttf|eot)$ {
-        expires 30d;
-        add_header Cache-Control "public, no-transform";
-        try_files \$uri =404;
-    }
-}
+# Make the script executable
+RUN chmod +x /docker-entrypoint.d/10-listen-on-ipv6-by-default.sh
 EOF
 
 # Create a custom PHP-FPM config to listen on a Unix socket
@@ -168,7 +171,17 @@ COPY <<EOF /usr/local/bin/start.sh
 set -e
 
 # Create necessary directories
-mkdir -p /run/php /var/log/php-fpm
+mkdir -p /run/php /var/log/php-fpm /var/run/nginx
+
+# Generate Nginx config with the correct port
+if [ -d /docker-entrypoint.d ]; then
+    for f in /docker-entrypoint.d/*.sh; do
+        if [ -x "$f" ]; then
+            echo "Running $f"
+            "$f"
+        fi
+    done
+fi
 
 # Start PHP-FPM in background
 echo "Starting PHP-FPM..."
@@ -185,7 +198,8 @@ sleep 3
 
 # Start Nginx in foreground
 echo "Starting Nginx..."
-exec nginx -g 'daemon off;'
+nginx -t
+exec nginx -g 'daemon off; error_log /dev/stderr info;'
 EOF
 
 # Make startup script executable
