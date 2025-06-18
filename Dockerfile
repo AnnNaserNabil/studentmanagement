@@ -79,11 +79,13 @@ RUN echo 'pm = dynamic' >> /usr/local/etc/php-fpm.d/www.conf \
     && echo 'pm.max_spare_servers = 3' >> /usr/local/etc/php-fpm.d/www.conf
 
 # Configure Nginx
-RUN rm /etc/nginx/sites-enabled/default
+RUN rm -f /etc/nginx/sites-enabled/*
+RUN mkdir -p /run/nginx
+
 COPY <<EOF /etc/nginx/conf.d/default.conf
 server {
-    listen 8080 default_server;
-    listen [::]:8080 default_server;
+    listen \$PORT default_server;
+    listen [::]:\$PORT default_server;
     server_name _;
     root /var/www/html/public;
     index index.php index.html index.htm;
@@ -91,10 +93,20 @@ server {
     access_log /var/log/nginx/access.log;
     error_log /var/log/nginx/error.log;
 
+    # Increase timeouts
+    client_max_body_size 100M;
+    fastcgi_read_timeout 300;
+    proxy_connect_timeout 600s;
+    proxy_send_timeout 600s;
+    proxy_read_timeout 600s;
+    fastcgi_send_timeout 600s;
+    fastcgi_read_timeout 600s;
+
     location / {
         try_files \$uri \$uri/ /index.php?\$query_string;
     }
 
+    # PHP-FPM Configuration
     location ~ \.php$ {
         try_files \$uri =404;
         fastcgi_split_path_info ^(.+\.php)(/.+)$;
@@ -103,16 +115,16 @@ server {
         include fastcgi_params;
         fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
         fastcgi_param PATH_INFO \$fastcgi_path_info;
-        fastcgi_param SCRIPT_NAME \$fastcgi_script_name;
         fastcgi_param PATH_TRANSLATED \$document_root\$fastcgi_path_info;
-    }
-
-    location ~ /\.ht {
-        deny all;
+        fastcgi_param QUERY_STRING \$query_string;
+        fastcgi_intercept_errors on;
+        fastcgi_buffer_size 128k;
+        fastcgi_buffers 4 256k;
+        fastcgi_busy_buffers_size 256k;
     }
 
     # Deny access to hidden files
-    location ~ /\\. {
+    location ~ /\. {
         deny all;
         access_log off;
         log_not_found off;
@@ -123,6 +135,18 @@ server {
         deny all;
         access_log off;
         log_not_found off;
+    }
+
+    # Deny access to sensitive files
+    location ~* \.(env|log|sql|sqlite|gitignore|gitattributes)$ {
+        deny all;
+    }
+
+    # Cache static files
+    location ~* \.(jpg|jpeg|gif|png|css|js|ico|webp|svg|woff|woff2|ttf|eot)$ {
+        expires 30d;
+        add_header Cache-Control "public, no-transform";
+        try_files \$uri =404;
     }
 }
 EOF
@@ -144,11 +168,28 @@ COPY <<EOF /usr/local/bin/start.sh
 #!/bin/bash
 set -e
 
+# Create necessary directories
+mkdir -p /run/php
+
 # Start PHP-FPM in background
 php-fpm -D
 
+# Wait for PHP-FPM to start
+sleep 5
+
+# Check if PHP-FPM is running
+if ! pgrep "php-fpm" > /dev/null; then
+    echo "PHP-FPM failed to start"
+    exit 1
+fi
+
 # Start Nginx in foreground
+echo "Starting Nginx..."
 nginx -g 'daemon off;'
+
+# If Nginx fails, show the error
+echo "Nginx failed to start"
+exit 1
 EOF
 
 # Make startup script executable
