@@ -84,94 +84,70 @@ RUN mkdir -p /run/nginx
 # Create a directory for entrypoint scripts
 RUN mkdir -p /docker-entrypoint.d
 
-# Create a script to generate the Nginx config with the correct port
+# Create a minimal Nginx configuration
 RUN echo '#!/bin/sh\n\
 set -e\n\
 # Get the port from the environment variable or use 8080 as default\n\
 PORT="${PORT:-8080}"\n\
 # Create the Nginx config with the correct port\n\
 cat > /etc/nginx/conf.d/default.conf <<NGINX_CONF\n\
-server {\n\
-    listen ${PORT} default_server;\n\
-    listen [::]:${PORT} default_server;\n\
-    server_name _;\n\
-    root /var/www/html/public;\n\
-    index index.php index.html index.htm;\n\
-    access_log /var/log/nginx/access.log;\n\
-    error_log /var/log/nginx/error.log;\n\
-    # Increase timeouts and buffer sizes\n\
+user www-data;\n\
+worker_processes auto;\n\
+pid /var/run/nginx.pid;\n\
+events {\n\
+    worker_connections 1024;\n\
+}\n\
+http {\n\
+    include       /etc/nginx/mime.types;\n\
+    default_type  application/octet-stream;\n\
+    sendfile        on;\n\
+    keepalive_timeout  65;\n\
     client_max_body_size 100M;\n\
-    client_body_buffer_size 128k;\n\
-    client_header_buffer_size 16k;\n\
-    large_client_header_buffers 4 32k;\n\
-    # Timeouts\n\
-    client_body_timeout 60s;\n\
-    client_header_timeout 60s;\n\
-    keepalive_timeout 75s;\n\
-    send_timeout 60s;\n\
-    # FastCGI settings\n\
-    fastcgi_connect_timeout 60s;\n\
-    fastcgi_send_timeout 300s;\n\
-    fastcgi_read_timeout 300s;\n\
-    fastcgi_buffer_size 128k;\n\
-    fastcgi_buffers 4 256k;\n\
-    fastcgi_busy_buffers_size 256k;\n\
-    fastcgi_temp_file_write_size 256k;\n\
-    # Proxy settings\n\
-    proxy_connect_timeout 60s;\n\
-    proxy_send_timeout 300s;\n\
-    proxy_read_timeout 300s;\n\
-    proxy_buffer_size 128k;\n\
-    proxy_buffers 4 256k;\n\
-    proxy_busy_buffers_size 256k;\n\
-    proxy_temp_file_write_size 256k;\n\
-    location / {\n\
-        try_files \$uri \$uri/ /index.php?\$query_string;\n\
-    }\n\
-    # PHP-FPM Configuration\n\
-    location ~ \\.php$ {\n\
-        try_files \$uri =404;\n\
-        fastcgi_split_path_info ^(.+\\.php)(/.+)$;\n\
-        fastcgi_pass 127.0.0.1:9000;\n\
-        fastcgi_index index.php;\n\
-        include fastcgi_params;\n\
-        fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;\n\
-        fastcgi_param PATH_INFO \$fastcgi_path_info;\n\
-        fastcgi_param PATH_TRANSLATED \$document_root\$fastcgi_path_info;\n\
-        fastcgi_param QUERY_STRING \$query_string;\n\
-        fastcgi_intercept_errors on;\n\
-        fastcgi_buffer_size 128k;\n\
-        fastcgi_buffers 4 256k;\n\
-        fastcgi_busy_buffers_size 256k;\n\
-    }\n\
-    # Deny access to hidden files\n\
-    location ~ /\\. {\n\
-        deny all;\n\
-        access_log off;\n\
-        log_not_found off;\n\
-    }\n\
-    # Disable access to .git directories\n\
-    location ~ /\\.git {\n\
-        deny all;\n\
-        access_log off;\n\
-        log_not_found off;\n\
-    }\n\
-    # Deny access to sensitive files\n\
-    location ~* \\.(env|log|sql|sqlite|gitignore|gitattributes)$ {\n\
-        deny all;\n\
-    }\n\
-    # Cache static files\n\
-    location ~* \\.(jpg|jpeg|gif|png|css|js|ico|webp|svg|woff|woff2|ttf|eot)$ {\n\
-        expires 30d;\n\
-        add_header Cache-Control "public, no-transform";\n\
-        try_files \$uri =404;\n\
+    server {\n\
+        listen ${PORT} default_server;\n\
+        listen [::]:${PORT} default_server;\n\
+        server_name _;\n\
+        root /var/www/html/public;\n\
+        index index.php index.html index.htm;\n\
+        access_log /var/log/nginx/access.log;\n\
+        error_log /var/log/nginx/error.log;\n\
+        location / {\n\
+            try_files \$uri \$uri/ /index.php?\$query_string;\n\
+        }\n\
+        location ~ \\.php$ {\n\
+            try_files \$uri =404;\n\
+            fastcgi_split_path_info ^(.+\\.php)(/.+)$;\n\
+            fastcgi_pass 127.0.0.1:9000;\n\
+            fastcgi_index index.php;\n\
+            include fastcgi_params;\n\
+            fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;\n\
+            fastcgi_param PATH_INFO \$fastcgi_path_info;\n\
+            fastcgi_read_timeout 300s;\n\
+        }\n\
+        location ~ /\\. {\n\
+            deny all;\n\
+            access_log off;\n\
+            log_not_found off;\n\
+        }\n\
+        location ~* \\.(jpg|jpeg|gif|png|css|js|ico|webp|svg|woff|woff2|ttf|eot)$ {\n\
+            expires 30d;\n\
+            add_header Cache-Control "public, no-transform";\n\
+            try_files \$uri =404;\n\
+        }\n\
     }\n\
 }\n\
 NGINX_CONF\n\
-echo "Nginx configured to listen on port ${PORT}"' > /docker-entrypoint.d/10-listen-on-ipv6-by-default.sh
+# Test the Nginx configuration\n\
+if nginx -t; then\n\
+    echo "Nginx configuration test is successful"\n\
+else\n\
+    echo "Nginx configuration test failed"\n\
+    exit 1\n\
+fi\n\
+echo "Nginx configured to listen on port ${PORT}"' > /docker-entrypoint.d/10-configure-nginx.sh
 
-# Make the script executable
-RUN chmod +x /docker-entrypoint.d/10-listen-on-ipv6-by-default.sh
+# Make the scripts executable
+RUN chmod +x /docker-entrypoint.d/*.sh
 
 # Create a custom PHP-FPM config to listen on a Unix socket
 RUN echo '[global]\n\
@@ -179,44 +155,37 @@ error_log = /proc/self/fd/2\n\
 [www]\n\
 user = www-data\n\
 group = www-data\n\
-listen = /var/run/php-fpm.sock\n\
+listen = 127.0.0.1:9000\n\
 listen.owner = www-data\n\
 listen.group = www-data\n\
-listen.mode = 0660\n\
-clear_env = no\n' > /usr/local/etc/php-fpm.d/zz-docker.conf
+clear_env = no\n\
+catch_workers_output = yes\n\
+' > /usr/local/etc/php-fpm.d/zz-docker.conf
 
 # Create a more reliable startup script
 RUN echo '#!/bin/bash\n\
 set -e\n\
 # Create necessary directories\n\
 mkdir -p /run/php /var/log/php-fpm /var/run/nginx\n\
-# Check if this is the first run\n\
-if [ ! -f /tmp/nginx-configured ]; then\n\
-    # Generate Nginx config with the correct port\n\
-    if [ -d /docker-entrypoint.d ]; then\n\
-        for f in /docker-entrypoint.d/*.sh; do\n\
-            if [ -x "$f" ]; then\n\
-                echo "Running $f"\n\
-                "$f"\n\
-            fi\n\
-        done\n\
-        touch /tmp/nginx-configured\n\
-    fi\n\
+# Generate Nginx config with the correct port\n\
+if [ -d /docker-entrypoint.d ]; then\n\
+    for f in /docker-entrypoint.d/*.sh; do\n\
+        if [ -x "$f" ]; then\n\
+            echo "Running $f"\n\
+            "$f"\n\
+        fi\n\
+    done\n\
 fi\n\
-# Start PHP-FPM in background if not already running\n\
+# Start PHP-FPM in background\n\
+echo "Starting PHP-FPM..."\n\
+php-fpm -D\n\
+# Simple check if PHP-FPM is running\n\
 if ! pgrep -x "php-fpm" > /dev/null; then\n\
-    echo "Starting PHP-FPM..."\n\
-    php-fpm -D\n\
-    # Simple check if PHP-FPM is running\n\
-    if ! pgrep -x "php-fpm" > /dev/null; then\n\
-        echo "PHP-FPM failed to start"\n\
-        exit 1\n\
-    fi\n\
-    # Wait a bit to ensure PHP-FPM is ready\n\
-    sleep 3\n\
-else\n\
-    echo "PHP-FPM is already running"\n\
+    echo "PHP-FPM failed to start"\n\
+    exit 1\n\
 fi\n\
+# Wait a bit to ensure PHP-FPM is ready\n\
+sleep 3\n\
 # Start Nginx in foreground\n\
 echo "Starting Nginx..."\n\
 # Test Nginx configuration first\n\
