@@ -17,7 +17,7 @@ COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 # Set working directory
 WORKDIR /var/www/html
 
-# Copy only composer files first to leverage Docker cache
+# Copy composer files first to leverage Docker cache
 COPY composer.json composer.lock* ./
 
 # Install dependencies
@@ -26,7 +26,6 @@ RUN composer install --no-dev --no-interaction --optimize-autoloader --ignore-pl
 # Copy the rest of the application
 COPY . .
 
-
 # Set permissions
 RUN chown -R www-data:www-data /var/www/html \
     && chmod -R 755 /var/www/html/storage \
@@ -34,17 +33,18 @@ RUN chown -R www-data:www-data /var/www/html \
 
 # Configure Apache
 ENV APACHE_DOCUMENT_ROOT /var/www/html/public
-RUN sed -ri -e 's!/var/www/html!${APACHE_DOCUMENT_ROOT}!g' /etc/apache2/sites-available/*.conf \
-    && sed -ri -e 's!/var/www/!${APACHE_DOCUMENT_ROOT}!g' /etc/apache2/apache2.conf /etc/apache2/conf-available/*.conf
+RUN echo "<VirtualHost *:80>\n    DocumentRoot ${APACHE_DOCUMENT_ROOT}\n    <Directory ${APACHE_DOCUMENT_ROOT}>\n        AllowOverride All\n        Require all granted\n    </Directory>\n</VirtualHost>" > /etc/apache2/sites-available/000-default.conf
+
+# Enable necessary Apache modules
+RUN a2enmod rewrite headers
 
 # Set environment
 ENV APP_ENV=production
 ENV APP_DEBUG=false
 
-# Optimize application
-RUN php artisan config:cache \
-    && php artisan route:cache \
-    && php artisan view:cache
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s \
+  CMD curl -f http://localhost/ || exit 1
 
 # Expose port 80
 EXPOSE 80
