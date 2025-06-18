@@ -99,14 +99,32 @@ server {\n\
     index index.php index.html index.htm;\n\
     access_log /var/log/nginx/access.log;\n\
     error_log /var/log/nginx/error.log;\n\
-    # Increase timeouts\n\
+    # Increase timeouts and buffer sizes\n\
     client_max_body_size 100M;\n\
-    fastcgi_read_timeout 300;\n\
-    proxy_connect_timeout 600s;\n\
-    proxy_send_timeout 600s;\n\
-    proxy_read_timeout 600s;\n\
-    fastcgi_send_timeout 600s;\n\
-    fastcgi_read_timeout 600s;\n\
+    client_body_buffer_size 128k;\n\
+    client_header_buffer_size 16k;\n\
+    large_client_header_buffers 4 32k;\n\
+    # Timeouts\n\
+    client_body_timeout 60s;\n\
+    client_header_timeout 60s;\n\
+    keepalive_timeout 75s;\n\
+    send_timeout 60s;\n\
+    # FastCGI settings\n\
+    fastcgi_connect_timeout 60s;\n\
+    fastcgi_send_timeout 300s;\n\
+    fastcgi_read_timeout 300s;\n\
+    fastcgi_buffer_size 128k;\n\
+    fastcgi_buffers 4 256k;\n\
+    fastcgi_busy_buffers_size 256k;\n\
+    fastcgi_temp_file_write_size 256k;\n\
+    # Proxy settings\n\
+    proxy_connect_timeout 60s;\n\
+    proxy_send_timeout 300s;\n\
+    proxy_read_timeout 300s;\n\
+    proxy_buffer_size 128k;\n\
+    proxy_buffers 4 256k;\n\
+    proxy_busy_buffers_size 256k;\n\
+    proxy_temp_file_write_size 256k;\n\
     location / {\n\
         try_files \$uri \$uri/ /index.php?\$query_string;\n\
     }\n\
@@ -172,28 +190,41 @@ RUN echo '#!/bin/bash\n\
 set -e\n\
 # Create necessary directories\n\
 mkdir -p /run/php /var/log/php-fpm /var/run/nginx\n\
-# Generate Nginx config with the correct port\n\
-if [ -d /docker-entrypoint.d ]; then\n\
-    for f in /docker-entrypoint.d/*.sh; do\n\
-        if [ -x "$f" ]; then\n\
-            echo "Running $f"\n\
-            "$f"\n\
-        fi\n\
-    done\n\
+# Check if this is the first run\n\
+if [ ! -f /tmp/nginx-configured ]; then\n\
+    # Generate Nginx config with the correct port\n\
+    if [ -d /docker-entrypoint.d ]; then\n\
+        for f in /docker-entrypoint.d/*.sh; do\n\
+            if [ -x "$f" ]; then\n\
+                echo "Running $f"\n\
+                "$f"\n\
+            fi\n\
+        done\n\
+        touch /tmp/nginx-configured\n\
+    fi\n\
 fi\n\
-# Start PHP-FPM in background\n\
-echo "Starting PHP-FPM..."\n\
-php-fpm -D\n\
-# Simple check if PHP-FPM is running\n\
-if ! (ps -ef | grep -v grep | grep php-fpm); then\n\
-    echo "PHP-FPM failed to start"\n\
-    exit 1\n\
+# Start PHP-FPM in background if not already running\n\
+if ! pgrep -x "php-fpm" > /dev/null; then\n\
+    echo "Starting PHP-FPM..."\n\
+    php-fpm -D\n\
+    # Simple check if PHP-FPM is running\n\
+    if ! pgrep -x "php-fpm" > /dev/null; then\n\
+        echo "PHP-FPM failed to start"\n\
+        exit 1\n\
+    fi\n\
+    # Wait a bit to ensure PHP-FPM is ready\n\
+    sleep 3\n\
+else\n\
+    echo "PHP-FPM is already running"\n\
 fi\n\
-# Wait a bit to ensure PHP-FPM is ready\n\
-sleep 3\n\
 # Start Nginx in foreground\n\
 echo "Starting Nginx..."\n\
-nginx -t\n\
+# Test Nginx configuration first\n\
+if ! nginx -t; then\n\
+    echo "Nginx configuration test failed"\n\
+    exit 1\n\
+fi\n\
+# Start Nginx in foreground\n\
 exec nginx -g "daemon off; error_log /dev/stderr info;"' > /usr/local/bin/start.sh
 
 # Make startup script executable
