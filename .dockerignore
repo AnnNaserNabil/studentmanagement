@@ -1,0 +1,16 @@
+.git
+.gitignore
+.vscode
+.idea
+node_modules
+vendor
+*.log
+.env
+*.sqlite
+.DS_Store
+*.swp
+*.swo
+*.swn
+*.bak
+*.backup
+*~
