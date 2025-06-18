@@ -22,20 +22,22 @@ RUN apt-get update && apt-get install -y \
     && docker-php-ext-configure gd --with-freetype --with-jpeg --with-webp \
     && docker-php-ext-install -j$(nproc) pdo_mysql mbstring gd zip opcache intl
 
+# Install MySQL client for database initialization
+RUN apt-get install -y default-mysql-client
+
 # Install Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
 # Set working directory
 WORKDIR /var/www/html
 
-# Copy application files
-COPY . .
-
+# Copy only necessary files for production
+COPY --chown=www-data:www-data . .
 
 # Create necessary directories with correct permissions
 RUN mkdir -p storage/framework/{sessions,views,cache} \
     && mkdir -p bootstrap/cache \
-    && mkdir -p public \
+    && mkdir -p public/uploads \
     && chown -R www-data:www-data /var/www/html \
     && chmod -R 755 storage bootstrap/cache public
 
@@ -43,6 +45,31 @@ RUN mkdir -p storage/framework/{sessions,views,cache} \
 RUN if [ -f "composer.json" ]; then \
         composer install --no-dev --no-interaction --optimize-autoloader --ignore-platform-reqs --no-scripts; \
     fi
+
+# Create a health check script
+COPY --chmod=755 <<EOF /usr/local/bin/healthcheck.sh
+#!/bin/sh
+set -e
+
+# Check if the web server is running
+if ! pgrep -f "nginx: master" > /dev/null; then
+    echo "Nginx is not running"
+    exit 1
+fi
+
+# Check if PHP-FPM is running
+if ! pgrep "php-fpm" > /dev/null; then
+    echo "PHP-FPM is not running"
+    exit 1
+fi
+
+echo "Application is healthy"
+exit 0
+EOF
+
+# Add health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD /bin/sh /usr/local/bin/healthcheck.sh || exit 1
 
 # Configure PHP-FPM
 RUN echo 'pm = dynamic' >> /usr/local/etc/php-fpm.d/www.conf \
