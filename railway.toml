@@ -1,0 +1,23 @@
+[build]
+builder = "dockerfile"
+
+[deploy]
+startCommand = "apache2-foreground"
+restartPolicyType = "on-failure"
+restartPolicyMaxRetries = 10
+
+[build.dockerfile]
+path = "Dockerfile"
+
+[build.ignore]
+files = [
+  ".git",
+  ".github",
+  ".vscode",
+  "node_modules",
+  "*.md",
+  "*.log"
+]
+
+[build.environment]
+NODE_ENV = "production"
