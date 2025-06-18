@@ -1,7 +1,8 @@
-
 {
-  "name": "AnnNaserNabil/studentmanagement",
-  "description": "A short description of your project.",
+  "name": "annnasernabil/studentmanagement",
+  "description": "A student management system.",
   "license": "proprietary",
-  // ...any other existing fields...
+  "require": {
+    "php": "^8.0"
+  }
 }
