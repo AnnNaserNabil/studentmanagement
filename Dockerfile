@@ -3,17 +3,22 @@ FROM php:8.3-fpm
 
 # Install system dependencies with build essentials
 RUN apt-get update && apt-get install -y \
+    build-essential \
+    libpng-dev \
+    libjpeg62-turbo-dev \
+    libfreetype6-dev \
+    libzip-dev \
+    locales \
+    zip \
+    jpegoptim optipng pngquant gifsicle \
+    vim \
+    unzip \
+    git \
+    curl \
     nginx \
     procps \
-    libpng-dev \
-    libonig-dev \
-    libxml2-dev \
-    libzip-dev \
-    zip \
-    unzip \
     libpng-tools \
     libjpeg-dev \
-    libfreetype6-dev \
     libwebp-dev \
     libssl-dev \
     libicu-dev \
@@ -21,8 +26,14 @@ RUN apt-get update && apt-get install -y \
     libxpm-dev \
     libvpx-dev \
     default-mysql-client \
+    netcat-openbsd \
+    && groupadd -r nginx \
+    && useradd -r -g nginx -s /sbin/nologin nginx \
+    && usermod -a -G www-data nginx \
     && docker-php-ext-configure gd --with-freetype --with-jpeg --with-webp \
-    && docker-php-ext-install -j$(nproc) pdo_mysql mbstring gd zip opcache intl
+    && docker-php-ext-install -j$(nproc) pdo_mysql mbstring gd zip opcache intl \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
 
 # Install Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
@@ -89,51 +100,99 @@ RUN echo '#!/bin/sh\n\
 set -e\n\
 # Get the port from the environment variable or use 8080 as default\n\
 PORT="${PORT:-8080}"\n\
-# Create the Nginx config with the correct port\n\
-cat > /etc/nginx/conf.d/default.conf <<NGINX_CONF\n\
-user www-data;\n\
-worker_processes auto;\n\
-pid /var/run/nginx.pid;\n\
+# Create the main nginx.conf with global settings\n\
+cat > /etc/nginx/nginx.conf <<NGINX_MAIN\n\
+user  nginx;\n\
+worker_processes  auto;\n\
+pid        /var/run/nginx.pid;\n\
 events {\n\
-    worker_connections 1024;\n\
+    worker_connections  1024;\n\
 }\n\
 http {\n\
     include       /etc/nginx/mime.types;\n\
     default_type  application/octet-stream;\n\
     sendfile        on;\n\
+    tcp_nopush     on;\n\
+    tcp_nodelay    on;\n\
     keepalive_timeout  65;\n\
+    types_hash_max_size 2048;\n\
+    server_tokens off;\n\
+    include /etc/nginx/conf.d/*.conf;\n\
+    include /etc/nginx/sites-enabled/*;\n\
+    # Set the default error log level\n    error_log /var/log/nginx/error.log warn;\n\
+    # Gzip Settings\n    gzip on;\n    gzip_disable "msie6";\n    gzip_vary on;\n    gzip_proxied any;\n    gzip_comp_level 6;\n    gzip_buffers 16 8k;\n    gzip_http_version 1.1;\n    gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript;\n}\n\
+NGINX_MAIN\n\
+# Create the server configuration\n\
+cat > /etc/nginx/conf.d/default.conf <<NGINX_CONF\n\
+server {\n\
+    listen ${PORT} default_server;\n\
+    listen [::]:${PORT} default_server;\n\
+    server_name _;\n\
+    root /var/www/html/public;\n\
+    index index.php index.html index.htm;\n\
+    charset utf-8;\n\
+    # Logging\n\
+    access_log /var/log/nginx/access.log;\n\
+    error_log /var/log/nginx/error.log warn;\n\
+    # Security headers\n\
+    add_header X-Frame-Options "SAMEORIGIN";\n\
+    add_header X-Content-Type-Options "nosniff";\n\
+    add_header X-XSS-Protection "1; mode=block";\n\
+    # File upload size\n\
     client_max_body_size 100M;\n\
-    server {\n\
-        listen ${PORT} default_server;\n\
-        listen [::]:${PORT} default_server;\n\
-        server_name _;\n\
-        root /var/www/html/public;\n\
-        index index.php index.html index.htm;\n\
-        access_log /var/log/nginx/access.log;\n\
-        error_log /var/log/nginx/error.log;\n\
-        location / {\n\
-            try_files \$uri \$uri/ /index.php?\$query_string;\n\
-        }\n\
-        location ~ \\.php$ {\n\
-            try_files \$uri =404;\n\
-            fastcgi_split_path_info ^(.+\\.php)(/.+)$;\n\
-            fastcgi_pass 127.0.0.1:9000;\n\
-            fastcgi_index index.php;\n\
-            include fastcgi_params;\n\
-            fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;\n\
-            fastcgi_param PATH_INFO \$fastcgi_path_info;\n\
-            fastcgi_read_timeout 300s;\n\
-        }\n\
-        location ~ /\\. {\n\
-            deny all;\n\
-            access_log off;\n\
-            log_not_found off;\n\
-        }\n\
-        location ~* \\.(jpg|jpeg|gif|png|css|js|ico|webp|svg|woff|woff2|ttf|eot)$ {\n\
-            expires 30d;\n\
-            add_header Cache-Control "public, no-transform";\n\
-            try_files \$uri =404;\n\
-        }\n\
+    # Root location\n\
+    location / {\n\
+        try_files \$uri \$uri/ /index.php?\$query_string;\n\
+    }\n\
+    # PHP-FPM Configuration\n\
+    location ~ \\.php$ {\n\
+        try_files \$uri =404;\n\
+        fastcgi_split_path_info ^(.+\\.php)(/.+)$;\n\
+        fastcgi_pass 127.0.0.1:9000;\n\
+        fastcgi_index index.php;\n\
+        include fastcgi_params;\n\
+        fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;\n\
+        fastcgi_param PATH_INFO \$fastcgi_path_info;\n\
+        # Timeouts\n\
+        fastcgi_read_timeout 300s;\n\
+        fastcgi_send_timeout 300s;\n\
+        fastcgi_connect_timeout 300s;\n\
+        # Buffers\n\
+        fastcgi_buffer_size 128k;\n\
+        fastcgi_buffers 4 256k;\n\
+        fastcgi_busy_buffers_size 256k;\n\
+    }\n\
+    # Deny access to hidden files\n\
+    location ~ /\\. {\n\
+        deny all;\n\
+        access_log off;\n\
+        log_not_found off;\n\
+    }\n\
+    # Deny access to sensitive files\n\
+    location ~* \\.(env|log|sql|sqlite|gitignore|gitattributes)$ {\n\
+        deny all;\n\
+        access_log off;\n\
+        log_not_found off;\n\
+    }\n\
+    # Cache static files\n\
+    location ~* \\.(jpg|jpeg|gif|png|css|js|ico|webp|svg|woff|woff2|ttf|eot)$ {\n\
+        expires 30d;\n\
+        add_header Cache-Control "public, no-transform";\n\
+        try_files \$uri =404;\n\
+        access_log off;\n\
+        log_not_found off;\n\
+    }\n\
+    # Deny access to storage and bootstrap/cache directories\n\
+    location ~* /(storage|bootstrap/cache) {\n\
+        deny all;\n\
+        access_log off;\n\
+        log_not_found off;\n\
+    }\n\
+    # Deny access to .git directory\n\
+    location ~ /\.git {\n\
+        deny all;\n\
+        access_log off;\n\
+        log_not_found off;\n\
     }\n\
 }\n\
 NGINX_CONF\n\
@@ -165,8 +224,12 @@ catch_workers_output = yes\n\
 # Create a more reliable startup script
 RUN echo '#!/bin/bash\n\
 set -e\n\
-# Create necessary directories\n\
-mkdir -p /run/php /var/log/php-fpm /var/run/nginx\n\
+# Create necessary directories with correct permissions\n\
+mkdir -p /run/php /var/log/php-fpm /var/run/nginx /var/cache/nginx/client_temp /var/cache/nginx/proxy_temp /var/cache/nginx/fastcgi_temp /var/cache/nginx/uwsgi_temp /var/cache/nginx/scgi_temp\n\
+chown -R nginx:nginx /var/cache/nginx /var/run/nginx\n\
+chmod -R 755 /var/cache/nginx /var/run/nginx\n\
+chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache\n\
+chmod -R 775 /var/www/html/storage /var/www/html/bootstrap/cache\n\
 # Generate Nginx config with the correct port\n\
 if [ -d /docker-entrypoint.d ]; then\n\
     for f in /docker-entrypoint.d/*.sh; do\n\
@@ -185,7 +248,18 @@ if ! pgrep -x "php-fpm" > /dev/null; then\n\
     exit 1\n\
 fi\n\
 # Wait a bit to ensure PHP-FPM is ready\n\
-sleep 3\n\
+echo "Waiting for PHP-FPM to be ready..."\n\
+for i in {1..10}; do\n\
+    if [ -S /var/run/php/php-fpm.sock ] || nc -z 127.0.0.1 9000; then\n\
+        echo "PHP-FPM is ready"\n\
+        break\n\
+    fi\n\
+    if [ $i -eq 10 ]; then\n\
+        echo "PHP-FPM failed to start"\n\
+        exit 1\n\
+    fi\n\
+    sleep 1\n\
+done\n\
 # Start Nginx in foreground\n\
 echo "Starting Nginx..."\n\
 # Test Nginx configuration first\n\
