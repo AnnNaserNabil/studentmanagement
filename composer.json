@@ -1,5 +1,7 @@
+
 {
-    "require": {
-        "mpdf/mpdf": "^6.1"
-    }
+  "name": "AnnNaserNabil/studentmanagement",
+  "description": "A short description of your project.",
+  "license": "proprietary",
+  // ...any other existing fields...
 }
