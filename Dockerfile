@@ -230,70 +230,76 @@ RUN { \
     echo 'php_admin_value[slowlog] = /var/log/php-fpm/slow.log'; \
 } > /usr/local/etc/php-fpm.d/zz-docker.conf
 
-# Create a simple startup script
-RUN echo '#!/bin/bash\
-set -e\
-\
-# Create necessary directories with correct permissions\
-mkdir -p /run/php /var/log/php-fpm /var/run/nginx /var/cache/nginx\
-chown -R nginx:nginx /var/cache/nginx /var/run/nginx /var/log/nginx\
-chmod -R 755 /var/cache/nginx /var/run/nginx /var/log/nginx\
-chown -R www-data:www-data /var/www/html /var/log/php-fpm /run/php\
-chmod -R 775 /var/www/html/storage /var/www/html/bootstrap/cache /var/log/php-fpm /run/php\
-\
-# Generate Nginx config with the correct port\
-if [ -d /docker-entrypoint.d ]; then\
-    for f in /docker-entrypoint.d/*.sh; do\
-        if [ -x "$f" ]; then\
-            echo "Running $f"\
-            "$f"\
-        fi\
-    done\
-fi\
-\
-# Start PHP-FPM in background\
-echo "Starting PHP-FPM..."\
-php-fpm -D\
-\
-# Simple check if PHP-FPM is running\
-if ! pgrep -x "php-fpm" > /dev/null; then\
-    echo "PHP-FPM failed to start"\
-    exit 1\
-fi\
-\
-# Wait a bit to ensure PHP-FPM is ready\
-echo "Waiting for PHP-FPM to be ready..."\
-for i in {1..10}; do\
-    if [ -S /var/run/php/php-fpm.sock ] || nc -z 127.0.0.1 9000; then\
-        echo "PHP-FPM is ready"\
-        break\
-    fi\
-    if [ $i -eq 10 ]; then\
-        echo "PHP-FPM failed to start"\
-        exit 1\
-    fi\
-    sleep 1\
-done\
-\
-# Create test PHP file if it does not exist\
-mkdir -p /var/www/html/public\
-echo "<?php\
-echo \"<h1>Welcome to Student Management System</h1>\";\
-phpinfo();\
-?>" > /var/www/html/public/index.php\
-chown -R www-data:www-data /var/www/html/public\
-\
-# Test Nginx configuration\
-echo "Testing Nginx configuration..."\
-if ! nginx -t; then\
-    echo "Nginx configuration test failed"\
-    exit 1\
-fi\
-\
-# Start Nginx in foreground\
-echo "Starting Nginx..."\
-exec nginx -g "daemon off; error_log /dev/stderr info;"' > /usr/local/bin/start.sh && \
-chmod +x /usr/local/bin/start.sh
+# Create a simple startup script with proper line endings
+RUN { \
+    echo '#!/bin/sh' && \
+    echo 'set -e' && \
+    echo '' && \
+    echo '# Create necessary directories with correct permissions' && \
+    echo 'mkdir -p /run/php /var/log/php-fpm /var/run/nginx /var/cache/nginx' && \
+    echo 'chown -R nginx:nginx /var/cache/nginx /var/run/nginx /var/log/nginx' && \
+    echo 'chmod -R 755 /var/cache/nginx /var/run/nginx /var/log/nginx' && \
+    echo 'chown -R www-data:www-data /var/www/html /var/log/php-fpm /run/php' && \
+    echo 'chmod -R 775 /var/www/html/storage /var/www/html/bootstrap/cache /var/log/php-fpm /run/php' && \
+    echo '' && \
+    echo '# Generate Nginx config with the correct port' && \
+    echo 'if [ -d /docker-entrypoint.d ]; then' && \
+    echo '    for f in /docker-entrypoint.d/*.sh; do' && \
+    echo '        if [ -x "$f" ]; then' && \
+    echo '            echo "Running $f"' && \
+    echo '            "$f"' && \
+    echo '        fi' && \
+    echo '    done' && \
+    echo 'fi' && \
+    echo '' && \
+    echo '# Start PHP-FPM in background' && \
+    echo 'echo "Starting PHP-FPM..."' && \
+    echo 'php-fpm -D' && \
+    echo '' && \
+    echo '# Simple check if PHP-FPM is running' && \
+    echo 'if ! pgrep -x "php-fpm" > /dev/null; then' && \
+    echo '    echo "PHP-FPM failed to start"' && \
+    echo '    exit 1' && \
+    echo 'fi' && \
+    echo '' && \
+    echo '# Wait a bit to ensure PHP-FPM is ready' && \
+    echo 'echo "Waiting for PHP-FPM to be ready..."' && \
+    echo 'for i in $(seq 1 10); do' && \
+    echo '    if [ -S /var/run/php/php-fpm.sock ] || nc -z 127.0.0.1 9000; then' && \
+    echo '        echo "PHP-FPM is ready"' && \
+    echo '        break' && \
+    echo '    fi' && \
+    echo '    if [ $i -eq 10 ]; then' && \
+    echo '        echo "PHP-FPM failed to start"' && \
+    echo '        exit 1' && \
+    echo '    fi' && \
+    echo '    sleep 1' && \
+    echo 'done' && \
+    echo '' && \
+    echo '# Create test PHP file if it does not exist' && \
+    echo 'mkdir -p /var/www/html/public' && \
+    echo 'cat > /var/www/html/public/index.php <<"EOF"' && \
+    echo '<?php' && \
+    echo 'echo "<h1>Welcome to Student Management System</h1>";' && \
+    echo 'phpinfo();' && \
+    echo '?>' && \
+    echo 'EOF' && \
+    echo 'chown -R www-data:www-data /var/www/html/public' && \
+    echo '' && \
+    echo '# Test Nginx configuration' && \
+    echo 'echo "Testing Nginx configuration..."' && \
+    echo 'if ! nginx -t; then' && \
+    echo '    echo "Nginx configuration test failed"' && \
+    echo '    exit 1' && \
+    echo 'fi' && \
+    echo '' && \
+    echo '# Start Nginx in foreground' && \
+    echo 'echo "Starting Nginx..."' && \
+    echo 'exec nginx -g "daemon off; error_log /dev/stderr info;"' \
+;} > /usr/local/bin/start.sh && \
+chmod +x /usr/local/bin/start.sh && \
+# Ensure the script has Unix line endings
+sed -i 's/\r$//' /usr/local/bin/start.sh
 
 # Make startup script executable
 RUN chmod +x /usr/local/bin/start.sh
