@@ -14,25 +14,21 @@ RUN apt-get update && apt-get install -y \
 # Install Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
-# Set working directory
-WORKDIR /var/www
-
 # Create document root and storage directories
 RUN mkdir -p /var/www/html/public \
     && mkdir -p /var/www/html/storage/framework/{sessions,views,cache} \
     && mkdir -p /var/www/html/bootstrap/cache
 
-# Copy composer files first to leverage Docker cache
-COPY --chown=www-data:www-data composer.json composer.lock* /var/www/html/
+# Copy application files
+COPY --chown=www-data:www-data . /var/www/html/
 
-# Set working directory to html
+# Set working directory
 WORKDIR /var/www/html
 
-# Install dependencies
-RUN composer install --no-dev --no-interaction --optimize-autoloader --ignore-platform-reqs --no-scripts
-
-# Copy the rest of the application
-COPY --chown=www-data:www-data . /var/www/html/
+# Install dependencies if composer.json exists
+RUN if [ -f "composer.json" ]; then \
+        composer install --no-dev --no-interaction --optimize-autoloader --ignore-platform-reqs --no-scripts; \
+    fi
 
 # Create a simple index.php if it doesn't exist
 RUN if [ ! -f /var/www/html/public/index.php ]; then \
@@ -46,45 +42,11 @@ RUN chown -R www-data:www-data /var/www \
     && chmod -R 775 /var/www/html/storage /var/www/html/bootstrap/cache \
     && chmod -R 755 /var/www/html/public
 
-# Enable Apache modules
-RUN a2enmod rewrite headers
-
 # Configure Apache
-ENV APACHE_DOCUMENT_ROOT /var/www/html/public
-ENV APACHE_RUN_USER www-data
-ENV APACHE_RUN_GROUP www-data
-ENV APACHE_PID_FILE /var/run/apache2/apache2.pid
-ENV APACHE_RUN_DIR /var/run/apache2
-ENV APACHE_LOCK_DIR /var/lock/apache2
-ENV APACHE_LOG_DIR /var/log/apache2
-
-# Create necessary directories
-RUN mkdir -p ${APACHE_RUN_DIR} ${APACHE_LOCK_DIR} ${APACHE_LOG_DIR} \
-    && chown -R www-data:www-data /var/run/apache2 /var/log/apache2
-
-# Configure Apache virtual host
-RUN echo "ServerName localhost\n\
-<VirtualHost *:80>\n\
-    ServerAdmin webmaster@localhost\n\
-    DocumentRoot ${APACHE_DOCUMENT_ROOT}\n\
-    <Directory ${APACHE_DOCUMENT_ROOT}>\n\
-        Options Indexes FollowSymLinks\n\
-        AllowOverride All\n\
-        Require all granted\n\
-        # Handle Authorization Header\n\
-        RewriteEngine On\n\
-        RewriteCond %{HTTP:Authorization} .\n\
-        RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]\n\
-    </Directory>\n\
-    ErrorLog ${APACHE_LOG_DIR}/error.log\n\
-    CustomLog ${APACHE_LOG_DIR}/access.log combined\n\
-    # Additional settings\n\
-    <Directory /var/www/html>\n\
-        Options -Indexes +FollowSymLinks\n\
-        AllowOverride All\n\
-        Require all granted\n\
-    </Directory>\n\
-</VirtualHost>" > /etc/apache2/sites-available/000-default.conf
+RUN a2enmod rewrite headers \
+    && echo "ServerName localhost" >> /etc/apache2/apache2.conf \
+    && echo "<Directory /var/www/html>\n    AllowOverride All\n    Require all granted\n</Directory>" > /etc/apache2/conf-available/php-app.conf \
+    && a2enconf php-app
 
 # Configure PHP
 RUN { \
@@ -92,20 +54,30 @@ RUN { \
     echo 'upload_max_filesize = 100M'; \
     echo 'post_max_size = 100M'; \
     echo 'max_execution_time = 300'; \
-    echo 'display_errors = Off'; \
+    echo 'display_errors = On'; \
     echo 'log_errors = On'; \
     echo 'error_log = /var/log/php_errors.log'; \
 } > /usr/local/etc/php/conf.d/custom.ini
 
-# Enable necessary Apache modules
-RUN a2enmod rewrite headers env alias
-
-# Create a test file if public directory is empty
-RUN echo "<?php phpinfo();" > /var/www/html/public/index.php
+# Create a simple Apache config
+RUN echo "<VirtualHost *:80>\n\
+    DocumentRoot /var/www/html/public\n\
+    <Directory /var/www/html/public>\n        Options Indexes FollowSymLinks\n        AllowOverride All\n        Require all granted\n        RewriteEngine On\n        RewriteBase /\n        RewriteCond %{REQUEST_FILENAME} !-f\n        RewriteCond %{REQUEST_FILENAME} !-d\n        RewriteRule ^ index.php [L]\n    </Directory>\n\
+    ErrorLog ${APACHE_LOG_DIR}/error.log\n    CustomLog ${APACHE_LOG_DIR}/access.log combined\n\
+</VirtualHost>" > /etc/apache2/sites-available/000-default.conf
 
 # Set environment
-ENV APP_ENV=production
-ENV APP_DEBUG=false
+ENV APACHE_RUN_USER=www-data \
+    APACHE_RUN_GROUP=www-data \
+    APACHE_LOG_DIR=/var/log/apache2 \
+    APACHE_LOCK_DIR=/var/lock/apache2 \
+    APACHE_PID_FILE=/var/run/apache2.pid \
+    APACHE_RUN_DIR=/var/run/apache2 \
+    APACHE_DOCUMENT_ROOT=/var/www/html/public
+
+# Create necessary directories and set permissions
+RUN mkdir -p ${APACHE_RUN_DIR} ${APACHE_LOCK_DIR} ${APACHE_LOG_DIR} \
+    && chown -R www-data:www-data /var/run/apache2 /var/log/apache2
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s \
