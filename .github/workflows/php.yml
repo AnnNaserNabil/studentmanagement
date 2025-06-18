@@ -15,8 +15,23 @@ jobs:
       - name: Install dependencies
         run: composer install --prefer-dist --no-progress --no-suggest
 
-      # Optional: Update composer.lock if needed (usually not on CI, but useful for a "lint" or auto-fix job)
-      # - name: Update composer.lock
-      #   run: composer update
+      # ...run your build steps here if you have any...
 
-      # ...your other steps (tests, etc.)
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./public  # <-- change to the folder you want to publish
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
