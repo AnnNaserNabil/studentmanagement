@@ -1,39 +1,70 @@
 # Use PHP 8.3 FPM as base
 FROM php:8.3-fpm
 
-# Install system dependencies with build essentials
-RUN apt-get update && apt-get install -y \
+# Install system dependencies in smaller, more reliable chunks
+RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
+    ca-certificates \
+    curl \
+    git \
+    gnupg \
+    unzip \
+    zip \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install essential libraries
+RUN apt-get update && apt-get install -y --no-install-recommends \
     libpng-dev \
     libjpeg62-turbo-dev \
     libfreetype6-dev \
-    libzip-dev \
-    locales \
-    zip \
-    jpegoptim optipng pngquant gifsicle \
-    vim \
-    unzip \
-    git \
-    curl \
-    nginx \
-    procps \
-    libpng-tools \
-    libjpeg-dev \
     libwebp-dev \
-    libssl-dev \
-    libicu-dev \
-    libpq-dev \
     libxpm-dev \
     libvpx-dev \
+    libzip-dev \
+    libicu-dev \
+    libpq-dev \
+    libssl-dev \
     default-mysql-client \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install tools and utilities
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    nginx \
+    procps \
     netcat-openbsd \
-    && groupadd -r nginx \
-    && useradd -r -g nginx -s /sbin/nologin nginx \
-    && usermod -a -G www-data nginx \
-    && docker-php-ext-configure gd --with-freetype --with-jpeg --with-webp \
-    && docker-php-ext-install -j$(nproc) pdo_mysql mbstring gd zip opcache intl \
-    && rm -rf /var/lib/apt/lists/* \
-    && apt-get clean
+    vim \
+    jpegoptim \
+    optipng \
+    pngquant \
+    gifsicle \
+    && rm -rf /var/lib/apt/lists/*
+
+# Configure system user and group
+RUN groupadd -r nginx && \
+    useradd -r -g nginx -s /sbin/nologin nginx && \
+    usermod -a -G www-data nginx
+
+# Configure PHP extensions
+RUN docker-php-ext-configure gd --with-freetype --with-jpeg --with-webp && \
+    docker-php-ext-install -j$(nproc) \
+        pdo_mysql \
+        mbstring \
+        gd \
+        zip \
+        opcache \
+        intl
+
+# Clean up
+RUN apt-get clean && \
+    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* /usr/share/doc/*
+
+# Create necessary directories with proper permissions
+RUN mkdir -p /var/www/html/storage /var/www/html/bootstrap/cache /var/log/php-fpm /var/run/php && \
+    chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache /var/log/php-fpm /var/run/php && \
+    chmod -R 775 /var/www/html/storage /var/www/html/bootstrap/cache /var/log/php-fpm /var/run/php && \
+    mkdir -p /var/cache/nginx /var/run/nginx && \
+    chown -R nginx:nginx /var/cache/nginx /var/run/nginx && \
+    chmod -R 755 /var/cache/nginx /var/run/nginx
 
 # Install Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
@@ -208,18 +239,34 @@ echo "Nginx configured to listen on port ${PORT}"' > /docker-entrypoint.d/10-con
 # Make the scripts executable
 RUN chmod +x /docker-entrypoint.d/*.sh
 
-# Create a custom PHP-FPM config to listen on a Unix socket
-RUN echo '[global]\n\
-error_log = /proc/self/fd/2\n\
-[www]\n\
-user = www-data\n\
-group = www-data\n\
-listen = 127.0.0.1:9000\n\
-listen.owner = www-data\n\
-listen.group = www-data\n\
-clear_env = no\n\
-catch_workers_output = yes\n\
-' > /usr/local/etc/php-fpm.d/zz-docker.conf
+# Configure PHP-FPM
+RUN { \
+    echo '[global]'; \
+    echo 'error_log = /proc/self/fd/2'; \
+    echo; \
+    echo '[www]'; \
+    echo 'user = www-data'; \
+    echo 'group = www-data'; \
+    echo 'listen = 127.0.0.1:9000'; \
+    echo 'listen.owner = www-data'; \
+    echo 'listen.group = www-data'; \
+    echo 'pm = dynamic'; \
+    echo 'pm.max_children = 25'; \
+    echo 'pm.start_servers = 5'; \
+    echo 'pm.min_spare_servers = 2'; \
+    echo 'pm.max_spare_servers = 10'; \
+    echo 'pm.max_requests = 500'; \
+    echo 'clear_env = no'; \
+    echo 'catch_workers_output = yes'; \
+    echo 'decorate_workers_output = no'; \
+    echo 'php_admin_value[memory_limit] = 256M'; \
+    echo 'php_admin_value[post_max_size] = 100M'; \
+    echo 'php_admin_value[upload_max_filesize] = 100M'; \
+    echo 'php_flag[display_errors] = off'; \
+    echo 'php_admin_flag[log_errors] = on'; \
+    echo 'php_admin_value[error_log] = /var/log/php-fpm/error.log'; \
+    echo 'php_admin_flag[log_errors] = on'; \
+} > /usr/local/etc/php-fpm.d/zz-docker.conf
 
 # Create a more reliable startup script
 RUN echo '#!/bin/bash\n\
